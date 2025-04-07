@@ -48,7 +48,7 @@ def tokenize(data: pd.DataFrame, tokenizer, flat_tensor: bool = True) -> torch.T
     flat_tensor: if True, returns a flattened tensor.
     ''' 
     print(f"Tokenizing {len(data)} strings")
-    token_lists = tokenizer.encode_batch(tqdm(data['text'].tolist(), desc="Tokenizing"))
+    token_lists = tokenizer.encode_batch(data['text'].tolist())
     token_ids = [enc.input_ids for enc in token_lists]
     if flat_tensor:
         total_tokens = sum(len(ids) for ids in token_ids)

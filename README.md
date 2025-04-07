@@ -2,7 +2,7 @@
 
 > DISCLAIMER: This README.md was written by GPT
 
-Simple utility funcs to process TinyStories by Eldan & Li, train a Byte-Pair Encoding (BPE) tokenizer, and create tokenized sequences for transformer models.
+Simple utility funcs to process TinyStories by Eldan & Li, train a Byte-Pair Encoding (BPE) tokenizer, and create tokenized sequences to train tiny transformer models.
 
 Primarily made for personal use.
 
