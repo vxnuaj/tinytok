@@ -24,7 +24,7 @@ pip install tinytok
 
 ```python
 import torch
-from utils import data_process, tokenize, train_new_tokenizer_bpe, create_sequences
+from tinytok import data_process, tokenize, train_new_tokenizer_bpe, create_sequences
 
 model_tokenizer_name = 'EleutherAI/gpt-neo-1.3B'
 
