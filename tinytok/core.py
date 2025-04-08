@@ -1,51 +1,54 @@
-from typing import List, Union, Tuple
-import pandas as pd
-import pyarrow.parquet as pq
-from multiprocessing import Pool
-from tqdm import tqdm
-from tokenizers import Tokenizer, models, pre_tokenizers, decoders, processors, trainers
 import torch
+import pandas as pd
+import pyarrow as pq
+
+from torch.nn.utils.rnn import pad_sequence
+from multiprocessing import Pool
+from tokenizers import Tokenizer, models, pre_tokenizers, trainers, decoders, processors
+from typing import List, Union, Tuple
+from tqdm import tqdm
 
 def stream_parquet_texts(file_paths: List[str]):
     """
-    Generator function that streams individual text strings from Parquet files.
+    Streams text data from multiple Parquet files. The function reads the "text" column from each file in batches.
 
-    This function reads Parquet files from a list of file paths, processes them in batches of 10,000 rows,
-    extracts the 'text' column, and yields each text string individually. It is designed for memory-efficient
-    handling of large datasets by streaming data one text at a time.
-
-    Args:
-        file_paths (List[str]): A list of file paths to Parquet files containing a 'text' column.
+    Parameters:
+    -----------
+    file_paths : List[str]
+        A list of file paths to Parquet files containing a "text" column.
 
     Yields:
-        str: Individual text strings extracted from the 'text' column of the Parquet files.
+    -------
+    str
+        A text string from each row in the "text" column of the Parquet files.
     """
     for path in file_paths:
         pf = pq.ParquetFile(path)
         for batch in pf.iter_batches(columns=["text"], batch_size=10000):
             df = batch.to_pandas()
             yield from df['text'].tolist()
-
+            
 def data_process(files: list, eos_str: str = None, return_single_str: bool = False, return_list_str: bool = False, processes: int = 0) -> Union[pd.DataFrame, Tuple[pd.DataFrame, str], List[str]]:
     """
-    Processes a list of Parquet files and returns the data in various formats.
+    Processes the text data from a list of Parquet files, optionally adding an end-of-sequence string.
 
-    Reads Parquet files into pandas DataFrames, optionally appends an end-of-sequence string to each text,
-    and returns the data as a DataFrame, a tuple of DataFrame and concatenated string, or a list of strings,
-    depending on the parameters. Supports parallel processing for faster reading.
-
-    Args:
-        files (list): A list of file paths to Parquet files.
-        eos_str (str, optional): String to append to each text sequence. Defaults to None.
-        return_single_str (bool, optional): If True, returns a tuple of DataFrame and a single concatenated string. Defaults to False.
-        return_list_str (bool, optional): If True, returns a list of text strings. Defaults to False.
-        processes (int, optional): Number of processes for parallel reading. If 0, reads sequentially. Defaults to 0.
+    Parameters:
+    -----------
+    files : list
+        A list of file paths to the Parquet files.
+    eos_str : str, optional (default=None)
+        An optional string to append at the end of each sequence in the "text" column.
+    return_single_str : bool, optional (default=False)
+        If True, concatenates all sequences into a single string and returns it along with the DataFrame.
+    return_list_str : bool, optional (default=False)
+        If True, returns the "text" column as a list of strings.
+    processes : int, optional (default=0)
+        Number of processes to use for reading files. If 0, files are read in the main process.
 
     Returns:
-        Union[pd.DataFrame, Tuple[pd.DataFrame, str], List[str]]: Processed data in the specified format:
-            - pd.DataFrame: If no return flags are set.
-            - Tuple[pd.DataFrame, str]: If return_single_str is True.
-            - List[str]: If return_list_str is True.
+    --------
+    Union[pd.DataFrame, Tuple[pd.DataFrame, str], List[str]]
+        A DataFrame with the processed data, or a tuple with the DataFrame and a single concatenated string, or a list of strings.
     """
     tqdm.pandas()
     if processes > 0:
@@ -63,24 +66,27 @@ def data_process(files: list, eos_str: str = None, return_single_str: bool = Fal
     if return_single_str:
         print(f"Concatenating {len(data)} sequences into a single string and returning")
         return data, "".join(data['text'])
-    return data
-
-def train_new_tokenizer_bpe(data: List[str], vocab_size, special_tokens, save_path=None) -> Tokenizer:
+    return data     
+        
+def train_new_tokenizer_bpe(data: List[str], vocab_size, special_tokens: list, save_path=None) -> Tokenizer:
     """
-    Trains a new Byte Pair Encoding (BPE) tokenizer.
+    Trains a new BPE tokenizer on the provided data.
 
-    Initializes and trains a BPE tokenizer using the Hugging Face Tokenizers library with the provided dataset,
-    vocabulary size, and special tokens. Configures the tokenizer with ByteLevel pre-tokenizer, decoder, and
-    post-processor. Optionally saves the trained tokenizer to a file.
-
-    Args:
-        data (List[str]): List of text strings to train the tokenizer on.
-        vocab_size (int): Desired size of the tokenizer's vocabulary.
-        special_tokens (list): List of special tokens to include in the vocabulary.
-        save_path (str, optional): Path to save the trained tokenizer. If None, the tokenizer is not saved. Defaults to None.
+    Parameters:
+    -----------
+    data : List[str]
+        A list of string sequences to train the tokenizer.
+    vocab_size : int
+        The desired vocabulary size for the tokenizer.
+    special_tokens : list
+        A list of special tokens to be added to the tokenizer.
+    save_path : str, optional (default=None)
+        The path to save the trained tokenizer. If None, the tokenizer is not saved.
 
     Returns:
-        Tokenizer: The trained BPE tokenizer object.
+    --------
+    Tokenizer
+        The trained tokenizer.
     """
     tokenizer = Tokenizer(models.BPE())
     tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
@@ -94,24 +100,26 @@ def train_new_tokenizer_bpe(data: List[str], vocab_size, special_tokens, save_pa
 
 def tokenize(data: pd.DataFrame, tokenizer, flat_tensor: bool = True, batch_size: int = 1000) -> torch.Tensor | List[torch.Tensor]:
     """
-    Tokenizes text data from a DataFrame using a provided tokenizer.
+    Tokenizes the text data in the DataFrame using the provided tokenizer.
 
-    Processes the text data in batches to manage large datasets efficiently. Returns either a single flattened
-    tensor of all token IDs or a list of tensors, each representing a tokenized sequence, based on the flat_tensor parameter.
-
-    Args:
-        data (pd.DataFrame): DataFrame with a 'text' column containing the text to tokenize.
-        tokenizer (Tokenizer): Trained tokenizer object to encode the text.
-        flat_tensor (bool, optional): If True, returns a single flattened tensor of token IDs. If False, returns a list of tensors. Defaults to True.
-        batch_size (int, optional): Number of text sequences to process per batch. Defaults to 1000.
+    Parameters:
+    -----------
+    data : pd.DataFrame
+        A DataFrame containing a "text" column to be tokenized.
+    tokenizer : Tokenizer
+        The tokenizer to use for tokenization.
+    flat_tensor : bool, optional (default=True)
+        If True, returns a flattened tensor. If False, returns a list of tensors.
+    batch_size : int, optional (default=1000)
+        The batch size for tokenizing the data.
 
     Returns:
-        torch.Tensor | List[torch.Tensor]: Tokenized data:
-            - torch.Tensor: A flattened tensor of all token IDs if flat_tensor is True.
-            - List[torch.Tensor]: A list of tensors, each representing a sequence, if flat_tensor is False.
+    --------
+    torch.Tensor | List[torch.Tensor]
+        A flattened tensor of tokenized data (if `flat_tensor=True`), or a list of tensors (if `flat_tensor=False`).
     """
     print(f"Tokenizing {len(data)} strings")
-    token_ids = []
+    token_ids = [] 
     for i in tqdm(range(0, len(data), batch_size), desc="Tokenizing"):
         batch = data['text'].iloc[i:i+batch_size].tolist()
         encodings = tokenizer.encode_batch(batch)
@@ -126,35 +134,38 @@ def tokenize(data: pd.DataFrame, tokenizer, flat_tensor: bool = True, batch_size
         return data_flat
     return [torch.tensor(ids) for ids in token_ids]
 
-def create_sequences_gen(data: torch.Tensor, context_len: int, seq_tensor_size: int = None, max_toks: int = None):
+def create_train_sequences_gen(data: torch.Tensor, context_len: int, seq_tensor_size: int = None, max_toks: int = None):
     """
-    Generates input and target sequences for language model training.
+    Generates sequences of tokens from the data for training. Each sequence is of length `context_len`.
 
-    Creates sequences of a specified context length from a tensor of token IDs. Can either yield batches of sequences
-    of size seq_tensor_size or return all sequences at once if seq_tensor_size is None. The number of sequences is
-    determined by max_toks and context_len, with sequences spaced evenly across the data.
+    Parameters:
+    -----------
+    data : torch.Tensor
+        A 1D tensor containing the tokenized data.
+    context_len : int
+        The length of the context window for each sequence.
+    seq_tensor_size : int, optional (default=None)
+        The number of sequences to yield in each batch.
+    max_toks : int, optional (default=None)
+        The maximum total number of tokens to use from the dataset.
 
-    Args:
-        data (torch.Tensor): 1D tensor of token IDs.
-        context_len (int): Length of the context window for each sequence.
-        seq_tensor_size (int, optional): Number of sequences per yielded tensor. If None, returns all sequences at once. Defaults to None.
-        max_toks (int, optional): Maximum number of tokens to use for sequences. If None, uses all data. Defaults to None.
-
-    Yields or Returns:
-        Tuple[torch.Tensor, torch.Tensor]: Depending on seq_tensor_size:
-            - Yields tuples of (X, y) tensors, where X is input sequences and y is target sequences, if seq_tensor_size is an int.
-            - Returns a single tuple of (X, y) tensors containing all sequences if seq_tensor_size is None.
+    Yields:
+    -------
+    Tuple[torch.Tensor, torch.Tensor]
+        A batch of input and target tensors representing sequences.
     """
-    max_toks = min(max_toks, len(data)) if max_toks is not None else len(data)
-    num_sequences = max_toks // context_len
-    step_size = (len(data) - context_len) // num_sequences
+    assert max_toks is not None, 'max_toks must be assigned to an integer value, as the total target number of tokens for the entire dataset.'
+    
+    max_toks = min(max_toks, len(data))
+    num_sequences = max_toks // context_len  # total number of sequences to be created, prior to step_size, assuming step_size = 1, given a max_toks
+    step_size = (len(data) - context_len) // num_sequences 
     print(f"Creating {num_sequences} sequences with a step size of {step_size}")
     X_tnsr, y_tnsr = [], []
     if isinstance(seq_tensor_size, int):
         for i in tqdm(range(num_sequences), desc=f"Creating {num_sequences} sequences"):
-            start_idx = i * step_size
+            start_idx = i * step_size 
             if start_idx + context_len + 1 > len(data):
-                break
+                break 
             X_tnsr.append(data[start_idx:start_idx + context_len])
             y_tnsr.append(data[start_idx + 1:start_idx + context_len + 1])
             if len(X_tnsr) == seq_tensor_size:
@@ -165,8 +176,44 @@ def create_sequences_gen(data: torch.Tensor, context_len: int, seq_tensor_size: 
     else:
         for i in tqdm(range(num_sequences), desc=f"Creating {num_sequences} sequences"):
             start_idx = i * step_size
-            if start_idx + context_len + 1 > len(data):
+            if start_idx + context_len + 1 > len(data): 
                 break
             X_tnsr.append(data[start_idx:start_idx+context_len])
             y_tnsr.append(data[start_idx+1:start_idx+context_len+1])
-        return torch.stack(X_tnsr, dim=0), torch.stack(y_tnsr, dim=0)
+        return torch.stack(X_tnsr, dim=0), torch.stack(y_tnsr, dim=0) 
+   
+def create_val_sequences(data: List[torch.Tensor], batch_first: bool = True, padding_value: int = 0) -> torch.Tensor:
+    """
+    Stacks a list of variable-length tensors into a single padded 2D tensor for validation.
+
+    Parameters:
+    -----------
+    data : List[torch.Tensor]
+        A list of 1D tensors (sequences) to be padded and stacked.
+    batch_first : bool, optional (default=True)
+        If True, the resulting tensor will have shape (batch_size, max_seq_length).
+        If False, it will have shape (max_seq_length, batch_size).
+    padding_value : int, optional (default=0)
+        The value to pad shorter sequences with.
+
+    Returns:
+    --------
+    torch.Tensor
+        A 2D tensor of padded sequences.
+    """
+    X = [seq[:-1] for seq in data]
+    y = [seq[1:] for seq in data]
+   
+    X_padded = pad_sequence(
+        sequences = X,
+        batch_first = batch_first,
+        padding_value = float(padding_value)
+    )
+    
+    y_padded = pad_sequence(
+        sequences = y,
+        batch_first=batch_first,
+        padding_value = float(padding_value)
+    )
+
+    return X_padded, y_padded
