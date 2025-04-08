@@ -17,7 +17,7 @@ Primarily made for personal use.
 ## Installation
 
 ```bash
-pip install tinytok
+pip install tinytok==0.1.0
 ```
 
 ## Example Usage
