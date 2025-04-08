@@ -1,6 +1,6 @@
 # tinytok
 
-> DISCLAIMER: This README.md was written by GPT
+> DISCLAIMER: This README.md was written by ~~GPT~~ Grok | The docstrings for the functions were written by ~~GPT~~ Grok.
 
 Simple utility funcs to process TinyStories by Eldan & Li, train a Byte-Pair Encoding (BPE) tokenizer, and create tokenized sequences to train tiny transformer models.
 
