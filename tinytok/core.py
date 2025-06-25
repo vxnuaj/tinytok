@@ -60,6 +60,7 @@ def stream_parquet_texts(file_paths: List[str]):
 
 
 def data_process(files: List[str],
+                 bos_str: Union[str, None] = None,
                  eos_str: Union[str, None] = None,
                  return_single_str: bool = False,
                  return_list_str: bool = False,
@@ -94,6 +95,9 @@ def data_process(files: List[str],
         dfs = [pd.read_parquet(f) for f in tqdm(files, desc="Reading Files")]
 
     data = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
+    if bos_str:
+        print("Appending BOS string to each entry.")
+        data['text'] = bos_str + data['text']
     if eos_str:
         print("Appending EOS string to each entry.")
         data['text'] = data['text'] + eos_str
