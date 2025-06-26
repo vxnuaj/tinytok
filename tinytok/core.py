@@ -159,11 +159,14 @@ def tokenize_chunk(chunk_data: List[str], tokenizer: Tokenizer) -> List[List[int
     token_ids = [encoding.ids for encoding in encodings]
     return token_ids
 
-
-def tokenize(data: pd.DataFrame, 
-             tokenizer: Tokenizer, 
-             flat_tensor: bool = True, 
-             processes: int = 1) -> Union[torch.Tensor, List[torch.Tensor]]:
+def tokenize(
+    data: pd.DataFrame, 
+    tokenizer: Tokenizer, 
+    flat_tensor: bool = True, 
+    processes: int = 1,
+    return_total_tokens: bool = False
+    ) -> Union[tuple[torch.Tensor, int], tuple[list[torch.Tensor], int]]:
+    
     """
     Tokenize text data from a DataFrame, supporting parallel processing.
 
@@ -178,9 +181,9 @@ def tokenize(data: pd.DataFrame,
         processes (int, optional): Number of processes to use for parallel tokenization.
 
     Returns:
-        Union[torch.Tensor, List[torch.Tensor]]:
-            - 1D tensor of token IDs if flat_tensor is True.
-            - List of 1D tensors, one per text entry, if flat_tensor is False.
+        Union[tuple[torch.Tensor, int], tuple[list[torch.Tensor], int]]:
+            - (1D tensor of token IDs, total_token_count) if flat_tensor is True.
+            - (List of 1D tensors, total_token_count), one per text entry, if flat_tensor is False.
     """
     print(f"Tokenizing {len(data)} strings using {processes} process(es).")
     chunk_size = max(1, len(data) // processes)
@@ -193,22 +196,28 @@ def tokenize(data: pd.DataFrame,
                             desc="Tokenizing in parallel"))
     
     token_ids = [token for chunk in results for token in chunk]
+    total_tokens = sum(len(ids) for ids in token_ids)
     
     if flat_tensor:
-        total_tokens = sum(len(ids) for ids in token_ids)
         data_flat = torch.zeros(total_tokens, dtype=torch.long)
         offset = 0
         for ids in tqdm(token_ids, desc="Creating flat tensor"):
-            data_flat[offset:offset + len(ids)] = torch.tensor(ids, dtype=torch.long)
+            ids_tensor = torch.tensor(ids, dtype=torch.long)
+            data_flat[offset:offset + len(ids)] = ids_tensor
             offset += len(ids)
+        if return_total_tokens:
+            return data_flat, total_tokens
         return data_flat
     
+    if return_total_tokens:
+        return [torch.tensor(ids, dtype=torch.long) for ids in token_ids], total_tokens
     return [torch.tensor(ids, dtype=torch.long) for ids in token_ids]
 
 
-def generate_sequence_batch(data: torch.Tensor, 
-                            start_indices: List[int], 
-                            context_len: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def generate_sequence_batch(
+    data: torch.Tensor, 
+    start_indices: List[int], 
+    context_len: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Generate a batch of input-target sequences from tokenized data.
 
