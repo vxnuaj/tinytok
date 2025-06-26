@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='tinytok',
-    version='0.4.1',
+    version='0.4.2',
     packages=find_packages(),
     install_requires=[
         'torch',
@@ -19,5 +19,5 @@ setup(
         'Programming Language :: Python :: 3',
         'Operating System :: OS Independent',
     ],
-    python_requires='>=3.12',
+    python_requires='>=3.10',
 )

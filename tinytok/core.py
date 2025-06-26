@@ -179,6 +179,7 @@ def tokenize(
         flat_tensor (bool, optional): If True, returns a single 1D tensor of all token IDs.
                                       If False, returns a list of 1D tensors for each text.
         processes (int, optional): Number of processes to use for parallel tokenization.
+        return_total_tokens (bool, optional): If True, returns the total number of tokens.
 
     Returns:
         Union[tuple[torch.Tensor, int], tuple[list[torch.Tensor], int]]:
