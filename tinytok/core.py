@@ -90,23 +90,28 @@ def data_process(files: List[str],
         with Pool(processes=processes) as pool:
             dfs = list(tqdm(pool.map(pd.read_parquet, files),
                             total=len(files),
-                            desc="Reading Files"))
+                            desc="Reading Files",
+                            colour="green"))
     else:
-        dfs = [pd.read_parquet(f) for f in tqdm(files, desc="Reading Files")]
+        dfs = [pd.read_parquet(f) for f in tqdm(files, desc="Reading Files", colour="magenta")]
 
     data = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
-    if bos_str:
-        print("Appending BOS string to each entry.")
+
+    if bos_str and eos_str:
+        #print("Appending BOS and EOS strings to each entry.")
+        data['text'] = bos_str + data['text'] + eos_str
+    elif bos_str and not eos_str:
+        #print("Appending BOS string to each entry.")
         data['text'] = bos_str + data['text']
-    if eos_str:
-        print("Appending EOS string to each entry.")
+    elif eos_str and not bos_str:
+        #print("Appending EOS string to each entry.")
         data['text'] = data['text'] + eos_str
 
     if return_list_str:
-        print(f"Returning list of {len(data)} text entries.")
+        # print(f"Returning list of {len(data)} text entries.")
         return data['text'].tolist()
     if return_single_str:
-        print(f"Concatenating {len(data)} sequences into a single string.")
+        # print(f"Concatenating {len(data)} sequences into a single string.")
         return data, "".join(data['text'])
     return data
 
@@ -186,7 +191,7 @@ def tokenize(
             - (1D tensor of token IDs, total_token_count) if flat_tensor is True.
             - (List of 1D tensors, total_token_count), one per text entry, if flat_tensor is False.
     """
-    print(f"Tokenizing {len(data)} strings using {processes} process(es).")
+
     chunk_size = max(1, len(data) // processes)
     chunks = [data['text'].iloc[i:i + chunk_size].tolist() for i in range(0, len(data), chunk_size)]
     
@@ -194,7 +199,8 @@ def tokenize(
         tokenize_partial = partial(tokenize_chunk, tokenizer=tokenizer)
         results = list(tqdm(pool.map(tokenize_partial, chunks),
                             total=len(chunks),
-                            desc="Tokenizing in parallel"))
+                            desc=f"Tokenizing {len(data)} strings using {processes} process(es)",
+                            colour="blue"))
     
     token_ids = [token for chunk in results for token in chunk]
     total_tokens = sum(len(ids) for ids in token_ids)
@@ -202,7 +208,7 @@ def tokenize(
     if flat_tensor:
         data_flat = torch.zeros(total_tokens, dtype=torch.long)
         offset = 0
-        for ids in tqdm(token_ids, desc="Creating flat tensor"):
+        for ids in tqdm(token_ids, desc=f"Creating flat tensor of {total_tokens} tokens", colour="blue"):
             ids_tensor = torch.tensor(ids, dtype=torch.long)
             data_flat[offset:offset + len(ids)] = ids_tensor
             offset += len(ids)
@@ -272,7 +278,6 @@ def create_train_sequences_gen(data: torch.Tensor,
     max_toks = min(max_toks, len(data))
     num_sequences = max_toks // context_len
     step_size = (len(data) - context_len) // num_sequences
-    print(f"Generating {num_sequences} sequences with a step size of {step_size}.")
 
     if isinstance(seq_tensor_size, int):
         batch_size = seq_tensor_size
@@ -282,12 +287,13 @@ def create_train_sequences_gen(data: torch.Tensor,
             generate_partial = partial(generate_sequence_batch, data, context_len=context_len)
             for batch_result in tqdm(executor.map(generate_partial, batches),
                                      total=len(batches),
-                                     desc="Generating sequence batches"):
+                                     desc=f"Generating {num_sequences} sequences with a step size of {step_size}",
+                                     colour="magenta"):
                 X_batch, y_batch = batch_result
                 yield X_batch, y_batch
     else:
         X_all, y_all = [], []
-        for i in tqdm(range(num_sequences), desc=f"Creating {num_sequences} sequences"):
+        for i in tqdm(range(num_sequences), desc=f"Creating {num_sequences} sequences", colour="magenta"):
             start_idx = i * step_size
             if start_idx + context_len + 1 > len(data):
                 break
@@ -340,7 +346,7 @@ def download_tinystories(save_dir: str = 'data/data'):
         ('validation.parquet', 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/validation-00000-of-00001-869c898b519ad725.parquet?download=true'),
     ]
 
-    for new_name, url in tqdm(urls, desc="Downloading files"):
+    for new_name, url in tqdm(urls, desc="Downloading files", colour="magenta"):
         tmp_name = url.split("/")[-1].split("?")[0]
         tmp_path = os.path.join(save_dir, tmp_name)
         final_path = os.path.join(save_dir, new_name)

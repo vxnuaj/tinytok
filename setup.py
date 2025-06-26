@@ -2,13 +2,14 @@ from setuptools import setup, find_packages
 
 setup(
     name='tinytok',
-    version='0.4.2',
+    version='0.4.3',
     packages=find_packages(),
     install_requires=[
         'torch',
         'pandas',
         'tqdm',
         'tokenizers',
+        'pyarrow',
     ],
     author='vxnuaj',
     description='Utility functions for processing TinyStories dataset by Eldan & Li',
