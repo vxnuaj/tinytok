@@ -211,9 +211,13 @@ def tokenize(
     
     with Pool(processes=processes) as pool:
         tokenize_partial = partial(tokenize_chunk, tokenizer=tokenizer)
-        results = list(track(sequence = pool.map(tokenize_partial, chunks),
-                            total=len(chunks),
-                            desc=f"Tokenizing {len(data)} strings using {processes} process(es)",))
+        results = list(
+            track(
+                sequence = pool.map(tokenize_partial, chunks),
+                total=len(chunks),
+                description=f"Tokenizing {len(data)} strings using {processes} process(es)",
+                )
+            )
     
     token_ids = [token for chunk in results for token in chunk]
     total_tokens = sum(len(ids) for ids in token_ids)
