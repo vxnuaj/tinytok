@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='tinytok',
-    version='0.4.4',
+    version='0.4.5',
     packages=find_packages(),
     install_requires=[
         'torch',
@@ -10,6 +10,7 @@ setup(
         'tqdm',
         'tokenizers',
         'pyarrow',
+        'rich'
     ],
     author='vxnuaj',
     description='Utility functions for processing TinyStories dataset by Eldan & Li',

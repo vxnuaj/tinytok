@@ -28,8 +28,9 @@ from typing import List, Union, Tuple
 import torch
 import pandas as pd
 import pyarrow as pq
-from tqdm import tqdm
 
+from rich.progress import track
+from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from multiprocessing import Pool
@@ -87,12 +88,26 @@ def data_process(files: List[str],
     tqdm.pandas()
     if processes > 0:
         with Pool(processes=processes) as pool:
-            dfs = list(tqdm(pool.map(pd.read_parquet, files),
-                            total=len(files),
-                            desc="Reading Files",
-                            ))
+            
+            dfs = list( # migrating from tqdm to track ( for aesthetics lol )
+                track(
+                    sequence = pool.map(pd.read_parquet, files),
+                    description = "Reading Files",
+                    total = len(files),
+                )
+            )
+         
+            '''  # tqdm 
+            dfs = list(
+                tqdm(
+                    iterable = pool.map(pd.read_parquet, files),
+                    total = len(files),
+                    desc = "Reading Files",
+                )
+            )
+            '''
     else:
-        dfs = [pd.read_parquet(f) for f in tqdm(files, desc="Reading Files", )]
+        dfs = [pd.read_parquet(f) for f in track(sequence = files, description="Reading Files", )]
 
     data = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
 
@@ -196,7 +211,7 @@ def tokenize(
     
     with Pool(processes=processes) as pool:
         tokenize_partial = partial(tokenize_chunk, tokenizer=tokenizer)
-        results = list(tqdm(pool.map(tokenize_partial, chunks),
+        results = list(track(sequence = pool.map(tokenize_partial, chunks),
                             total=len(chunks),
                             desc=f"Tokenizing {len(data)} strings using {processes} process(es)",))
     
@@ -206,7 +221,7 @@ def tokenize(
     if flat_tensor:
         data_flat = torch.zeros(total_tokens, dtype=torch.long)
         offset = 0
-        for ids in tqdm(token_ids, desc=f"Creating flat tensor of {total_tokens} tokens"):
+        for ids in track(sequence = token_ids, description=f"Creating flat tensor of {total_tokens} tokens"):
             ids_tensor = torch.tensor(ids, dtype=torch.long)
             data_flat[offset:offset + len(ids)] = ids_tensor
             offset += len(ids)
@@ -283,15 +298,15 @@ def create_train_sequences_gen(data: torch.Tensor,
         batches = [start_indices[i:i + batch_size] for i in range(0, len(start_indices), batch_size)]
         with ThreadPoolExecutor(max_workers=processes) as executor:
             generate_partial = partial(generate_sequence_batch, data, context_len=context_len)
-            for batch_result in tqdm(executor.map(generate_partial, batches),
+            for batch_result in track(sequence = executor.map(generate_partial, batches),
                                      total=len(batches),
-                                     desc=f"Generating {num_sequences} sequences with a step size of {step_size}",
+                                     description=f"Generating {num_sequences} sequences with a step size of {step_size}",
                                      ):
                 X_batch, y_batch = batch_result
                 yield X_batch, y_batch
     else:
         X_all, y_all = [], []
-        for i in tqdm(range(num_sequences), desc=f"Creating {num_sequences} sequences", ):
+        for i in track(range(num_sequences), description=f"Creating {num_sequences} sequences", ):
             start_idx = i * step_size
             if start_idx + context_len + 1 > len(data):
                 break
@@ -344,7 +359,7 @@ def download_tinystories(save_dir: str = 'data/data'):
         ('validation.parquet', 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/validation-00000-of-00001-869c898b519ad725.parquet?download=true'),
     ]
 
-    for new_name, url in tqdm(urls, desc="Downloading files", ):
+    for new_name, url in track(sequence = urls, description="Downloading files", ):
         tmp_name = url.split("/")[-1].split("?")[0]
         tmp_path = os.path.join(save_dir, tmp_name)
         final_path = os.path.join(save_dir, new_name)
