@@ -182,10 +182,8 @@ def tokenize(
     data: pd.DataFrame, 
     tokenizer: Tokenizer, 
     flat_tensor: bool = True, 
-    processes: int = 1,
-    return_total_tokens: bool = False
-    ) -> Union[tuple[torch.Tensor, int], tuple[list[torch.Tensor], int]]:
-    
+    processes: int = 1
+    ) -> Union[torch.Tensor, list[torch.Tensor]]:
     """
     Tokenize text data from a DataFrame, supporting parallel processing.
 
@@ -198,12 +196,11 @@ def tokenize(
         flat_tensor (bool, optional): If True, returns a single 1D tensor of all token IDs.
                                       If False, returns a list of 1D tensors for each text.
         processes (int, optional): Number of processes to use for parallel tokenization.
-        return_total_tokens (bool, optional): If True, returns the total number of tokens.
 
     Returns:
-        Union[tuple[torch.Tensor, int], tuple[list[torch.Tensor], int]]:
-            - (1D tensor of token IDs, total_token_count) if flat_tensor is True.
-            - (List of 1D tensors, total_token_count), one per text entry, if flat_tensor is False.
+        Union[torch.Tensor, list[torch.Tensor]]:
+            - 1D tensor of token IDs if flat_tensor is True.
+            - List of 1D tensors, one per text entry, if flat_tensor is False.
     """
     
     chunk_size = max(1, len(data) // processes)
@@ -220,21 +217,19 @@ def tokenize(
             )
     
     token_ids = [token for chunk in results for token in chunk]
-    total_tokens = sum(len(ids) for ids in token_ids)
     
     if flat_tensor:
-        data_flat = torch.zeros(total_tokens, dtype=torch.long)
+        data_flat = torch.zeros(sum(len(ids) for ids in token_ids), dtype=torch.long)
         offset = 0
-        for ids in track(sequence = token_ids, description=f"Creating flat tensor of {total_tokens} tokens"):
+        for ids in track(
+            sequence = token_ids, 
+            description=f"Creating flat tensor of {sum(len(ids) for ids in token_ids)} tokens"
+            ):
             ids_tensor = torch.tensor(ids, dtype=torch.long)
             data_flat[offset:offset + len(ids)] = ids_tensor
             offset += len(ids)
-        if return_total_tokens:
-            return data_flat, total_tokens
         return data_flat
     
-    if return_total_tokens:
-        return [torch.tensor(ids, dtype=torch.long) for ids in token_ids], total_tokens
     return [torch.tensor(ids, dtype=torch.long) for ids in token_ids]
 
 
@@ -354,6 +349,7 @@ def download_tinystories(save_dir: str = 'data/data'):
                                   Defaults to 'data/data'.
     """
     os.makedirs(save_dir, exist_ok=True)
+    
 
     urls = [
         ('train1.parquet', 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/train-00000-of-00004-2d5a1467fff1081b.parquet?download=true'),
@@ -373,3 +369,46 @@ def download_tinystories(save_dir: str = 'data/data'):
             f.write(response.content)
 
         os.rename(tmp_path, final_path)
+        
+def get_token_count(X_path: str, y_path: str, return_total_toks: bool = False) -> tuple[int, int] | tuple[int, int, int]:
+    """
+    Count tokens in X and y tensors from saved files.
+    
+    Args:
+        X_path: Path to directory containing X tensors
+        y_path: Path to directory containing y tensors
+        return_total_toks: If True, returns a third value with the sum of X and y tokens
+        
+    Returns:
+        If return_total_toks is False: (x_token_count, y_token_count)
+        If return_total_toks is True: (x_token_count, y_token_count, total_token_count)
+        
+    Raises:
+        FileNotFoundError: If either directory doesn't exist
+        ValueError: If X and y directories have different numbers of files
+    """
+    if not os.path.isdir(X_path) or not os.path.isdir(y_path):
+        raise FileNotFoundError("One or both directories do not exist")
+        
+    x_files = sorted(os.listdir(X_path))
+    y_files = sorted(os.listdir(y_path))
+    
+    if len(x_files) != len(y_files):
+        raise ValueError(f"Mismatched number of files: {len(x_files)} in X_path vs {len(y_files)} in y_path")
+        
+    X_toks = 0
+    y_toks = 0
+    
+    for x_file, y_file in tqdm(zip(x_files, y_files), total=len(x_files), desc="Counting tokens"):
+        X = torch.load(os.path.join(X_path, x_file))
+        y = torch.load(os.path.join(y_path, y_file))
+        
+        if not isinstance(X, torch.Tensor) or not isinstance(y, torch.Tensor):
+            raise ValueError(f"Loaded objects must be PyTorch tensors")
+            
+        X_toks += X.numel()
+        y_toks += y.numel()
+        
+    if return_total_toks:
+        return X_toks, y_toks, X_toks + y_toks
+    return X_toks, y_toks
