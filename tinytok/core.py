@@ -29,7 +29,6 @@ import torch
 import pandas as pd
 import pyarrow as pq
 
-from rich.progress import track
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -85,29 +84,18 @@ def data_process(files: List[str],
             - If return_single_str is True, returns a tuple (DataFrame, concatenated string).
             - Otherwise, returns a DataFrame with the processed text data.
     """
-    tqdm.pandas()
     if processes > 0:
         with Pool(processes=processes) as pool:
-            
-            dfs = list( # migrating from tqdm to track ( for aesthetics lol )
-                track(
-                    sequence = pool.map(pd.read_parquet, files),
-                    description = "Reading Files",
-                    total = len(files),
-                )
-            )
-         
-            '''  # tqdm 
             dfs = list(
                 tqdm(
-                    iterable = pool.map(pd.read_parquet, files),
-                    total = len(files),
-                    desc = "Reading Files",
+                    pool.map(pd.read_parquet, files),
+                    total=len(files),
+                    desc="Reading Files",
+                    ascii=False
                 )
             )
-            '''
     else:
-        dfs = [pd.read_parquet(f) for f in track(sequence = files, description="Reading Files", )]
+        dfs = [pd.read_parquet(f) for f in tqdm(files, desc="Reading Files", ascii=False)]
 
     data = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
 
@@ -209,22 +197,20 @@ def tokenize(
     with Pool(processes=processes) as pool:
         tokenize_partial = partial(tokenize_chunk, tokenizer=tokenizer)
         results = list(
-            track(
-                sequence = pool.map(tokenize_partial, chunks),
+            tqdm(
+                pool.map(tokenize_partial, chunks),
                 total=len(chunks),
-                description=f"Tokenizing {len(data)} strings using {processes} process(es)",
-                )
+                desc=f"Tokenizing {len(data)} strings using {processes} process(es)",
+                ascii=False
             )
+        )
     
     token_ids = [token for chunk in results for token in chunk]
     
     if flat_tensor:
         data_flat = torch.zeros(sum(len(ids) for ids in token_ids), dtype=torch.long)
         offset = 0
-        for ids in track(
-            sequence = token_ids, 
-            description=f"Creating flat tensor of {sum(len(ids) for ids in token_ids)} tokens"
-            ):
+        for ids in tqdm(token_ids, desc="Creating flat tensor", ascii=False):
             ids_tensor = torch.tensor(ids, dtype=torch.long)
             data_flat[offset:offset + len(ids)] = ids_tensor
             offset += len(ids)
@@ -297,15 +283,15 @@ def create_train_sequences_gen(data: torch.Tensor,
         batches = [start_indices[i:i + batch_size] for i in range(0, len(start_indices), batch_size)]
         with ThreadPoolExecutor(max_workers=processes) as executor:
             generate_partial = partial(generate_sequence_batch, data, context_len=context_len)
-            for batch_result in track(sequence = executor.map(generate_partial, batches),
-                                     total=len(batches),
-                                     description=f"Generating {num_sequences} sequences with a step size of {step_size}",
-                                     ):
+            for batch_result in tqdm(executor.map(generate_partial, batches),
+                                  total=len(batches),
+                                  desc="Generating batches",
+                                  ascii=False):
                 X_batch, y_batch = batch_result
                 yield X_batch, y_batch
     else:
         X_all, y_all = [], []
-        for i in track(range(num_sequences), description=f"Creating {num_sequences} sequences", ):
+        for i in tqdm(range(num_sequences), desc=f"Creating {num_sequences} sequences", ascii=False):
             start_idx = i * step_size
             if start_idx + context_len + 1 > len(data):
                 break
@@ -351,15 +337,15 @@ def download_tinystories(save_dir: str = 'data/data'):
     os.makedirs(save_dir, exist_ok=True)
     
 
-    urls = [
-        ('train1.parquet', 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/train-00000-of-00004-2d5a1467fff1081b.parquet?download=true'),
-        ('train2.parquet', 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/train-00001-of-00004-5852b56a2bd28fd9.parquet?download=true'),
-        ('train3.parquet', 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/train-00002-of-00004-a26307300439e943.parquet?download=true'),
-        ('train4.parquet', 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/train-00003-of-00004-d243063613e5a057.parquet?download=true'),
-        ('validation.parquet', 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/validation-00000-of-00001-869c898b519ad725.parquet?download=true'),
-    ]
+    urls = {
+        'train1.parquet': 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/train-00000-of-00004-2d5a1467fff1081b.parquet?download=true',
+        'train2.parquet': 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/train-00001-of-00004-5852b56a2bd28fd9.parquet?download=true',
+        'train3.parquet': 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/train-00002-of-00004-a26307300439e943.parquet?download=true',
+        'train4.parquet': 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/train-00003-of-00004-d243063613e5a057.parquet?download=true',
+        'validation.parquet': 'https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/data/validation-00000-of-00001-869c898b519ad725.parquet?download=true',
+    }
 
-    for new_name, url in track(sequence = urls, description="Downloading files", ):
+    for new_name, url in tqdm(urls.items(), desc="Downloading files", ascii=False):
         tmp_name = url.split("/")[-1].split("?")[0]
         tmp_path = os.path.join(save_dir, tmp_name)
         final_path = os.path.join(save_dir, new_name)
@@ -399,7 +385,7 @@ def get_token_count(X_path: str, y_path: str, return_total_toks: bool = False) -
     X_toks = 0
     y_toks = 0
     
-    for x_file, y_file in tqdm(zip(x_files, y_files), total=len(x_files), desc="Counting tokens"):
+    for x_file, y_file in tqdm(zip(x_files, y_files), total=len(x_files), desc="Counting tokens", ascii=False):
         X = torch.load(os.path.join(X_path, x_file))
         y = torch.load(os.path.join(y_path, y_file))
         
